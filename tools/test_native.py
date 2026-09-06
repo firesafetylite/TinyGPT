@@ -63,10 +63,10 @@ class NativeMachine:
                 self.log.flush()
         return ANSI.sub(b"", data).decode("ascii", errors="replace")
 
-    def send(self, command: str, needle: str = "tinygpt:/> ") -> str:
+    def send(self, command: str, needle: str = "tinygpt:/> ", timeout: int = 30) -> str:
         self.process.stdin.write(command.encode() + b"\n")
         self.process.stdin.flush()
-        return self.wait(needle)
+        return self.wait(needle, timeout)
 
     def qmp(self, execute: str, arguments: dict) -> dict:
         if self.control is None:
@@ -161,21 +161,44 @@ def main() -> None:
             machine.send("testpass123")
             machine.send("rm -rf /", "Password: ")
             machine.send("testpass123")
+            assert "DOOMU.WAD" in machine.send("doom")  # Wipe remains authoritative until explicit repair.
             machine.send("reboot", "preos> ")
             machine.send("repair 2", "Username: ")
             machine.send("tester", "Password: ")
-            assert "target partition is bootable" in machine.send("testpass123", "preos> ")
+            repaired = machine.send("testpass123", "preos> ", timeout=120)
+            assert "target partition is bootable" in repaired
+            assert "Freedoom game data restored and verified" in repaired
+            machine.send("boot 2", "Username: ")
+            machine.send("tester", "Password: ")
+            machine.send("testpass123")
+            machine.process.stdin.write(b"doom\n")
+            machine.process.stdin.flush()
+            game_screen = Path(directory) / "doom.ppm"
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                output = machine.read_for(0.5)
+                assert "is missing" not in output and "Firmware exception" not in output, output
+                machine.qmp("screendump", {"filename": str(game_screen)})
+                pixels = game_screen.read_bytes().split(b"\n", 3)[3]
+                if len(set(zip(pixels[::3], pixels[1::3], pixels[2::3]))) > 32:
+                    break  # A real game frame, not the terminal's 16-color palette.
+            else:
+                raise AssertionError("Restored Doom did not render a game frame")
+            machine.qmp("human-monitor-command", {"command-line": "sendkey q"})
+            machine.wait("Returned from Freedoom", timeout=30)
             machine.process.stdin.write(b"shutdown\n")
             machine.process.stdin.flush()
             machine.process.wait(timeout=10)
             assert machine.process.returncode == 0
-            print("PASS: native BIOS -> disk OS, login/accounts, writes, graphics/keyboard, held-key scrolling/release, colored scrollback, deletion, repair, root wipe, restart")
-            if args.artifacts:
-                args.artifacts.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(screen, args.artifacts / screen.name)
-                shutil.copy2(Path(directory) / "serial.log", args.artifacts / "native-smoke.log")
+            print("PASS: native BIOS -> disk OS, login/accounts, writes, graphics/keyboard, held-key scrolling/release, colored scrollback, deletion, repair, root wipe, restored Doom renders and exits")
         finally:
             machine.close()
+            if args.artifacts:
+                args.artifacts.mkdir(parents=True, exist_ok=True)
+                for name in ("serial.log", "scrollback.ppm", "doom.ppm"):
+                    path = Path(directory) / name
+                    if path.exists():
+                        shutil.copy2(path, args.artifacts / ("native-smoke.log" if name == "serial.log" else name))
 
 
 if __name__ == "__main__":

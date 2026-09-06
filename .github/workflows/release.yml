@@ -121,6 +121,7 @@ jobs:
             firmware/licenses/LIBFDT-LICENSE.txt \
             firmware/licenses/OPENSSL-LICENSE.txt \
             third_party/PureDOOM/LICENSE \
+            third_party/console-font/LICENSE.txt \
             assets/FREEDOOM-COPYING.txt \
             assets/FREEDOOM-CREDITS.txt \
             assets/FREEDOOM-CREDITS-MUSIC.txt \

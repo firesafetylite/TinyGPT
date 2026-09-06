@@ -98,7 +98,7 @@ Before launching the shell, TinyGPT verifies:
 4. FAT-tree readability, required protected entries, bounds, and observational scan-time hashes
 5. The installed operating-system state
 
-Press **Enter** during the two-second startup window to open the partition selector. Use Up/Down to choose a target, Enter to boot, **S** to save the default, or **R** to enter recovery. Recovery also opens automatically when the selected system is missing, cannot be mounted, or fails structural/readability checks. It never silently repairs a damaged installation.
+Press **Enter** during the startup window to open the partition selector. The default delay is two seconds; **Settings > 9 — Auto boot timer** changes it to 1–60 seconds for the next boot. **Esc** or **R** opens firmware recovery during the same window. Use Up/Down to choose a target, Enter to boot, **S** to save the default, or **R** to enter recovery. Recovery also opens automatically when the selected system is missing, cannot be mounted, or fails structural/readability checks. It never silently repairs a damaged installation.
 
 The pre-OS environment supports:
 
@@ -202,9 +202,13 @@ Run `settings` for the full-screen configuration interface. It controls:
 - Whether the current path appears in the prompt
 - Whether the shell starts in `/` or `/home`
 - Whether 256-line scrollback is enabled
+- **9 — Auto boot timer**: 1–60 seconds (default 2), saved globally after administrator re-authentication and used before system-partition mounting on the next boot
+- **10 — Screen resolution**: supported pixel modes, with a live preview; press **Y** to keep, or **N/Esc** to undo. Unconfirmed changes revert after 15 seconds. **D** restores the boot default; **0** cancels
 - **User accounts**: account list, password changes, and administrator-only account creation/deletion
 
-Appearance and shell preferences save automatically to `/home/.tinygptrc`. **Settings > User accounts** saves separately to the protected recovery-volume account database, never to `.tinygptrc`. Restoring appearance and shell defaults does not reset accounts or passwords.
+Appearance, shell, and confirmed resolution preferences save automatically to `/home/.tinygptrc` on the selected system partition. Resolutions are stored by width/height, not firmware mode numbers. Unsupported saved modes fall back to the boot display without blocking login. Native RAMFB offers 640×480, 800×600, 1024×768, and 1280×720; UEFI lists advertised modes between 640×480 and 1920×1080. Text-only devices report resolution changes as unavailable. Console geometry follows the selected mode; changing resolution clears old, differently wrapped scrollback.
+
+The global boot timer saves separately in checksum-validated `TINYBOOT.DAT` on recovery storage, so it works before the OS mounts and survives a system-partition wipe. Missing or invalid timer data uses two seconds. This is TinyGPT's partition-selection delay, not a separate UEFI firmware splash/menu timeout. **Settings > User accounts** also saves separately to the protected recovery-volume account database, never to `.tinygptrc`. Restoring appearance and shell defaults does not reset the resolution, boot timer, accounts, or passwords.
 
 ### Scrollback
 

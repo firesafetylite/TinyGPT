@@ -13,13 +13,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_NAME = b"TINYGPT ELF"
+DOOM_NAME = b"DOOMU   WAD"
 
 
 def validate_system(image: bytes) -> None:
     if (not 64 <= len(image) <= 8 * 1024 * 1024 or image[:7] != b"\x7fELF\x02\x01\x01"
             or struct.unpack_from("<HH", image, 16) != (2, 183)
-            or b"TinyGPTNativeABI=3\n" not in image):
-        raise ValueError("Expected the current native ARM64 TinyGPT ELF system (ABI 3)")
+            or b"TinyGPTNativeABI=4\n" not in image):
+        raise ValueError("Expected the current native ARM64 TinyGPT ELF system (ABI 4)")
     entry, table = struct.unpack_from("<QQ", image, 24)
     stride, count = struct.unpack_from("<HH", image, 54)
     if stride != 56 or not 1 <= count <= 32 or table + count * stride > len(image):
@@ -45,14 +46,31 @@ def validate_system(image: bytes) -> None:
 
 def install_system(disk: bytes, system: bytes, partition: int = 2) -> bytes:
     validate_system(system)
+    return _install_root_file(disk, system, NATIVE_NAME, partition)
+
+
+def install_doom(disk: bytes, wad: bytes, partition: int = 2) -> bytes:
+    """Restore missing game data without replacing existing IWADs, saves or settings."""
+    if not 12 <= len(wad) <= 32 * 1024 * 1024 or wad[:4] != b"IWAD":
+        raise ValueError("Expected a bounded Freedoom IWAD")
+    lumps, directory = struct.unpack_from("<II", wad, 4)
+    if not lumps or directory < 12 or directory + lumps * 16 > len(wad):
+        raise ValueError("Invalid IWAD directory")
+    return _install_root_file(disk, wad, DOOM_NAME, partition, preserve_existing=True)
+
+
+def _install_root_file(disk: bytes, payload: bytes, name: bytes, partition: int,
+                       preserve_existing: bool = False) -> bytes:
     if not 2 <= partition <= 16:
         raise ValueError("The OS belongs on a system partition, not recovery")
     updater = runpy.run_path(str(ROOT / "tinygpt"))
     fat = updater["Fat32Image"](disk, partition_index=partition-1)
     matches = [(offset, entry) for offset, entry in fat._directory_entries(fat.root_cluster)
-               if entry[:11] == NATIVE_NAME]
+               if entry[:11] == name]
     if len(matches) > 1 or (matches and matches[0][1][11] & 0x10):
-        raise ValueError("Ambiguous native system entry")
+        raise ValueError("Ambiguous system payload entry")
+    if matches and preserve_existing:
+        return disk
     if not matches:
         if fat.fat_bits == 16:
             regions = [(fat.root_directory_offset, fat.root_directory_sectors * 512)]
@@ -75,12 +93,12 @@ def install_system(disk: bytes, system: bytes, partition: int = 2) -> bytes:
             fat._fat_set(free, 0x0FFFFFFF)
             fat._fat_set(tail, free)
         entry = bytearray(32)
-        entry[:11] = NATIVE_NAME
+        entry[:11] = name
         entry[11] = 0x20
         fat.data[slot:slot+32] = entry
-    fat.replace_file((NATIVE_NAME,), system)
-    if fat.read_file((NATIVE_NAME,)) != system:
-        raise ValueError("Native system read-back mismatch")
+    fat.replace_file((name,), payload)
+    if fat.read_file((name,)) != payload:
+        raise ValueError("System payload read-back mismatch")
     start, end = fat.volume_offset, fat.volume_offset + fat.total_sectors * 512
     after = bytes(fat.data)
     if after[:start] != disk[:start] or after[end:] != disk[end:]:

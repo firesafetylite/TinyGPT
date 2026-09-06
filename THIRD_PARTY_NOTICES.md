@@ -11,6 +11,14 @@ TinyGPT includes the following third-party components. Their copyrights remain w
 
 The optional firmware build enables and configures EDK2 networking, HTTP/TLS, VirtIO RNG, and a pinned CA trust store for updater testing. It is not included in the maintained image distribution. The complete EDK2 license is preserved in `firmware/licenses/EDK2-LICENSE.txt`.
 
+## Console font
+
+- Included files: `third_party/console-font/font8x19.h`, `README.md`, and `LICENSE.txt`
+- Source: TianoCore EDK2 8×19 narrow glyph bitmaps; provenance is preserved in `third_party/console-font/README.md`
+- License: BSD-2-Clause-Patent
+
+The native console and the UEFI resolution-switching console reuse only the font data, not EDK2 firmware code or services. Preserve `third_party/console-font/LICENSE.txt` with binary distributions.
+
 ## OpenSSL
 
 - Project: [OpenSSL](https://github.com/openssl/openssl)

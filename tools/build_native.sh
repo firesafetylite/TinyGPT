@@ -17,9 +17,14 @@ python3 - "$out/TINYGPT.ELF" "$out/system.S" <<'PY'
 from pathlib import Path
 import hashlib, sys
 image, output = map(Path, sys.argv[1:])
-# Zig's assembly cache does not track .incbin inputs: include the payload digest.
-digest = hashlib.sha256(image.read_bytes()).hexdigest()
-output.write_text('// payload-sha256: ' + digest + '\n.section .rodata.native_os,"a"\n.balign 16\n.global native_os_start, native_os_end\nnative_os_start:\n.incbin "' + str(image.resolve()) + '"\nnative_os_end:\n')
+wad = Path('assets/freedoom1.wad')
+# Zig's assembly cache does not track .incbin inputs: include both payload digests.
+assembly = ''
+for name, path in [('os', image), ('wad', wad)]:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assembly += f'// {name}-sha256: {digest}\n.section .rodata.native_{name},"a"\n.balign 16\n'
+    assembly += f'.global native_{name}_start, native_{name}_end\nnative_{name}_start:\n.incbin "{path.resolve()}"\nnative_{name}_end:\n'
+output.write_text(assembly)
 PY
 "${ZIG[@]}" cc "${flags[@]}" -Dbios_main=prototype_main -c firmware/bios/main.c -o "$out/primitives.o"
 "${ZIG[@]}" cc "${flags[@]}" -DTINYGPT_FIRMWARE -DTINYGPT_WRITABLE \
@@ -35,8 +40,11 @@ from native_image import validate_system
 out = Path(sys.argv[1])
 system = (out / 'TINYGPT.ELF').read_bytes()
 validate_system(system)
-assert system in (out / 'TinyGPT-BIOS.bin').read_bytes(), 'Recovery ROM contains a stale native system payload'
+rom = (out / 'TinyGPT-BIOS.bin').read_bytes()
+assert system in rom, 'Recovery ROM contains a stale native system payload'
+assert Path('assets/freedoom1.wad').read_bytes() in rom, 'Recovery ROM is missing the Freedoom repair payload'
 PY
 cp third_party/console-font/LICENSE.txt "$out/CONSOLE-FONT-LICENSE.txt"
+cp assets/FREEDOOM-COPYING.txt "$out/FREEDOOM-COPYING.txt"
 python3 tools/native_image.py "$out/TINYGPT.ELF" "$out/TinyGPT.img"
 ls -lh "$out/TINYGPT.ELF" "$out/TinyGPT-BIOS.bin" "$out/TinyGPT.img"

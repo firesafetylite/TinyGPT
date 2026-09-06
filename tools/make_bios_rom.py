@@ -6,7 +6,8 @@ from pathlib import Path
 import struct
 
 ROM_SIZE = 64 * 1024 * 1024
-MAX_CODE = 16 * 1024 * 1024
+# Recovery includes the 28 MiB Freedoom IWAD as well as executable code.
+MAX_CODE = ROM_SIZE
 
 
 def pack_elf(elf: bytes) -> bytes:

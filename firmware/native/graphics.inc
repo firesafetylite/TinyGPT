@@ -1,7 +1,7 @@
 #include "../../third_party/console-font/font8x19.h"
-#define NATIVE_TEXT_COLUMNS 80U
-#define NATIVE_TEXT_ROWS 25U
-_Static_assert(NATIVE_TEXT_ROWS * NATIVE_FONT_HEIGHT <= 480U, "Text must fit the framebuffer");
+#include "display_modes.h"
+#define NATIVE_TEXT_COLUMNS (native_api->framebuffer ? native_api->width / NATIVE_FONT_WIDTH : 80U)
+#define NATIVE_TEXT_ROWS (native_api->framebuffer ? native_api->height / NATIVE_FONT_HEIGHT : 25U)
 static UINTN native_text_top(void) { return (native_api->height - NATIVE_TEXT_ROWS * NATIVE_FONT_HEIGHT) / 2U; }
 static const UINT32 native_palette[16]={0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
     0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff};
@@ -39,13 +39,24 @@ static EFI_GRAPHICS_OUTPUT_MODE_INFORMATION native_gop_info;
 static EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE native_gop_mode;
 static EFI_GRAPHICS_OUTPUT_PROTOCOL native_gop;
 static EFI_STATUS native_gop_query(EFI_GRAPHICS_OUTPUT_PROTOCOL *self, UINT32 mode, UINTN *bytes, EFI_GRAPHICS_OUTPUT_MODE_INFORMATION **info) {
-    (void)self; if (mode || !native_api->framebuffer) return EFI_UNSUPPORTED;
+    (void)self; *info=0; *bytes=0;
+    if (mode>=NATIVE_DISPLAY_MODE_COUNT || !native_api->framebuffer) return EFI_UNSUPPORTED;
     EFI_STATUS result=native_allocate(2,sizeof(native_gop_info),(void **)info);
     if (result!=EFI_SUCCESS) return result;
-    **info=native_gop_info; *bytes=sizeof(native_gop_info); return EFI_SUCCESS;
+    UINT32 width=native_display_modes[mode].width, height=native_display_modes[mode].height;
+    **info=(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION){0,width,height,1,{0,0,0,0},width};
+    *bytes=sizeof(native_gop_info); return EFI_SUCCESS;
 }
+static void native_graphics_initialize(void);
 static EFI_STATUS native_gop_set(EFI_GRAPHICS_OUTPUT_PROTOCOL *self, UINT32 mode) {
-    (void)self; return mode || !native_api->framebuffer ? EFI_UNSUPPORTED : EFI_SUCCESS;
+    (void)self;
+    if (mode>=NATIVE_DISPLAY_MODE_COUNT || !native_api->framebuffer || !native_api->set_display) return EFI_UNSUPPORTED;
+    if (!native_api->set_display(native_display_modes[mode].width, native_display_modes[mode].height)) return EFI_DEVICE_ERROR;
+    native_graphics_initialize();
+    native_mode.Mode=(INT32)mode;
+    native_mode.CursorColumn=native_mode.CursorRow=0;
+    native_graphics_clear();
+    return EFI_SUCCESS;
 }
 static EFI_STATUS native_gop_blt(EFI_GRAPHICS_OUTPUT_PROTOCOL *self, EFI_GRAPHICS_OUTPUT_BLT_PIXEL *buffer, UINT32 operation,
     UINTN source_x, UINTN source_y, UINTN destination_x, UINTN destination_y, UINTN width, UINTN height, UINTN delta) {
@@ -63,7 +74,8 @@ static EFI_STATUS native_gop_blt(EFI_GRAPHICS_OUTPUT_PROTOCOL *self, EFI_GRAPHIC
 }
 static void native_graphics_initialize(void) {
     native_gop_info=(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION){0,native_api->width,native_api->height,1,{0,0,0,0},native_api->width};
-    native_gop_mode=(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE){1,0,&native_gop_info,sizeof(native_gop_info),(UINTN)native_api->framebuffer,
+    int mode=native_display_mode(native_api->width,native_api->height);
+    native_gop_mode=(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE){NATIVE_DISPLAY_MODE_COUNT,mode<0 ? 0U : (UINT32)mode,&native_gop_info,sizeof(native_gop_info),(UINTN)native_api->framebuffer,
         (UINTN)native_api->width*native_api->height*4};
     native_gop=(EFI_GRAPHICS_OUTPUT_PROTOCOL){native_gop_query,native_gop_set,native_gop_blt,&native_gop_mode};
 }

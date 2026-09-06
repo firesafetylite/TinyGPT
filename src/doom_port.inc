@@ -308,11 +308,17 @@ static int doom_run(void) {
         return 0;
     }
     if (!doom_wad_available()) {
-        print("doom: DOOMU.WAD (Freedoom Phase 1) is missing from the UEFI disk\n");
+        print("doom: DOOMU.WAD (Freedoom Phase 1) is missing from this system partition\n");
+#ifdef TINYGPT_NATIVE
+        print("doom: enter firmware recovery and run 'repair "); print_u64(gActivePartition);
+        print("' to restore the game data (Administrator password required)\n");
+#else
+        print("doom: restore DOOMU.WAD from the distribution to this partition\n");
+#endif
         return 0;
     }
     if (!doom_graphics_init()) {
-        print("doom: UEFI Graphics Output Protocol is unavailable\n");
+        print("doom: graphics output is unavailable\n");
         return 0;
     }
     gDoomStarted = 1;

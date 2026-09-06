@@ -1,11 +1,54 @@
 /* QEMU virt peripherals owned by TinyGPT: RAMFB via fw_cfg and VirtIO keyboard. */
 #include "../bios/bios.h"
 #include "key_repeat.h"
+#include "display_modes.h"
+/* Identity-map flash and RAM as Normal non-cacheable memory. With the MMU off,
+ * ARM treats data accesses as Device memory, which faults on Doom's packed WAD
+ * records. MMIO stays Device-nGnRnE; caches remain off for coherent polled DMA. */
+static uint64_t native_l1[512] __attribute__((aligned(4096)));
+static uint64_t native_low_l2[512] __attribute__((aligned(4096)));
+static uint64_t native_ram_l2[512] __attribute__((aligned(4096)));
+void board_memory_init(void) {
+    const uint64_t accessed=1ULL<<10, shared=3ULL<<8, normal=1ULL<<2;
+    const uint64_t no_execute=(1ULL<<53)|(1ULL<<54);
+    memset(native_l1,0,sizeof(native_l1));
+    memset(native_ram_l2,0,sizeof(native_ram_l2));
+    for (unsigned i=0;i<512;i++) {
+        uint64_t address=(uint64_t)i<<21;
+        native_low_l2[i]=address|1U|accessed|
+            (i<32 ? normal|shared|(1ULL<<7)|(1ULL<<54) : no_execute);
+    }
+    for (unsigned i=0;i<128;i++) /* Only the configured 256 MiB of RAM. */
+        native_ram_l2[i]=(0x40000000ULL+((uint64_t)i<<21))|1U|accessed|normal|shared|(1ULL<<54);
+    native_l1[0]=(uintptr_t)native_low_l2|3U;
+    native_l1[1]=(uintptr_t)native_ram_l2|3U;
+    uint64_t mair=0x4400, tcr=32U|(3U<<12)|(1U<<23), control;
+    __asm__ volatile("dsb sy; msr mair_el1, %0; msr tcr_el1, %1; msr ttbr0_el1, %2; isb; tlbi vmalle1; dsb sy; isb"
+        :: "r"(mair), "r"(tcr), "r"((uintptr_t)native_l1) : "memory");
+    __asm__ volatile("mrs %0, sctlr_el1" : "=r"(control));
+    control=(control&~((1ULL<<1)|(1ULL<<2)|(1ULL<<12)))|1U;
+    __asm__ volatile("msr sctlr_el1, %0; isb" :: "r"(control) : "memory");
+}
 static uint16_t be16(uint16_t n) { return (uint16_t)((n>>8)|(n<<8)); }
 static uint32_t be32(uint32_t n) { return __builtin_bswap32(n); }
 static uint64_t be64(uint64_t n) { return __builtin_bswap64(n); }
 static uint8_t config_byte(void) { return *(volatile uint8_t *)0x09020000UL; }
 static void config_select(uint16_t selector) { *(volatile uint16_t *)0x09020008UL=be16(selector); }
+static uint16_t framebuffer_selector;
+int board_set_display(uint32_t width, uint32_t height) {
+    if (!framebuffer_selector || native_display_mode(width, height) < 0) return 0;
+    static uint8_t config[28] __attribute__((aligned(16)));
+    static volatile struct { uint32_t control,length; uint64_t address; } dma __attribute__((aligned(16)));
+    uint64_t address=be64(NATIVE_FRAMEBUFFER_ADDRESS); memcpy(config,&address,8);
+    const uint32_t fields[]={be32(0x34325258),0,be32(width),be32(height),be32(width*4)};
+    memcpy(config+8,fields,sizeof(fields));
+    dma.control=be32(((uint32_t)framebuffer_selector<<16)|8U|16U); dma.length=be32(sizeof(config)); dma.address=be64((uintptr_t)config);
+    barrier(); *(volatile uint64_t *)0x09020010UL=be64((uintptr_t)&dma);
+    uint64_t start=ticks();
+    while (dma.control) { if (be32(dma.control)&1U || ticks()-start>frequency()) return 0; }
+    barrier();
+    return 1;
+}
 uint32_t *board_framebuffer(void) {
     config_select(0);
     if (config_byte()!='Q' || config_byte()!='E' || config_byte()!='M' || config_byte()!='U') return 0;
@@ -20,17 +63,9 @@ uint32_t *board_framebuffer(void) {
         if (!name[j] && !entry[8+j]) selector=(uint16_t)((entry[4]<<8)|entry[5]);
     }
     if (!selector) return 0;
-    static uint8_t config[28] __attribute__((aligned(16)));
-    static volatile struct { uint32_t control,length; uint64_t address; } dma __attribute__((aligned(16)));
-    uint64_t address=be64(0x40400000UL); memcpy(config,&address,8);
-    const uint32_t fields[]={be32(0x34325258),0,be32(640),be32(480),be32(640*4)};
-    memcpy(config+8,fields,sizeof(fields));
-    dma.control=be32(((uint32_t)selector<<16)|8U|16U); dma.length=be32(sizeof(config)); dma.address=be64((uintptr_t)config);
-    barrier(); *(volatile uint64_t *)0x09020010UL=be64((uintptr_t)&dma);
-    uint64_t start=ticks();
-    while (dma.control) { if (be32(dma.control)&1U || ticks()-start>frequency()) return 0; }
-    barrier();
-    uint32_t *pixels=(uint32_t *)0x40400000UL;
+    framebuffer_selector=selector;
+    if (!board_set_display(640,480)) return 0;
+    uint32_t *pixels=(uint32_t *)NATIVE_FRAMEBUFFER_ADDRESS;
     for (unsigned i=0;i<640*480;i++) pixels[i]=0;
     return pixels;
 }

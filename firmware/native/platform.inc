@@ -100,9 +100,19 @@ static EFI_STATUS native_text(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, CHAR16 *tex
     return EFI_SUCCESS;
 }
 static EFI_STATUS native_query(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, UINTN mode, UINTN *columns, UINTN *rows) {
-    (void)self; if (mode) return EFI_UNSUPPORTED; *columns=80; *rows=25; return EFI_SUCCESS;
+    (void)self;
+    if (!native_api->framebuffer) { if (mode) return EFI_UNSUPPORTED; *columns=80; *rows=25; return EFI_SUCCESS; }
+    if (mode>=NATIVE_DISPLAY_MODE_COUNT) return EFI_UNSUPPORTED;
+    *columns=native_display_modes[mode].width/NATIVE_FONT_WIDTH;
+    *rows=native_display_modes[mode].height/NATIVE_FONT_HEIGHT;
+    return EFI_SUCCESS;
 }
-static EFI_STATUS native_set_mode(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, UINTN mode) { (void)self; return mode ? EFI_UNSUPPORTED : EFI_SUCCESS; }
+static EFI_STATUS native_set_mode(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, UINTN mode) {
+    (void)self;
+    if (!native_api->framebuffer) return mode ? EFI_UNSUPPORTED : EFI_SUCCESS;
+    if (mode>=NATIVE_DISPLAY_MODE_COUNT) return EFI_UNSUPPORTED;
+    return native_gop_set(&native_gop,(UINT32)mode);
+}
 static EFI_STATUS native_attribute(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, UINTN attribute) {
     static const UINT8 colors[]={0,4,2,6,1,5,3,7}; (void)self;
     native_mode.Attribute=(INT32)attribute;
@@ -114,7 +124,7 @@ static EFI_STATUS native_clear(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self) {
     native_graphics_clear(); return EFI_SUCCESS;
 }
 static EFI_STATUS native_cursor(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *self, UINTN x, UINTN y) {
-    (void)self; if (x>=80 || y>=25) return EFI_UNSUPPORTED;
+    (void)self; if (x>=NATIVE_TEXT_COLUMNS || y>=NATIVE_TEXT_ROWS) return EFI_UNSUPPORTED;
     native_uart_text("\033["); native_uart_number(y+1); native_uart_char(';'); native_uart_number(x+1); native_uart_char('H');
     native_mode.CursorColumn=(INT32)x; native_mode.CursorRow=(INT32)y; return EFI_SUCCESS;
 }
@@ -378,7 +388,7 @@ static EFI_STATUS native_locate_protocol(EFI_GUID *guid, void *registration, voi
 }
 static int native_initialize(const NativeApi *api) {
     if (!api || api->magic!=NATIVE_API_MAGIC || api->version!=NATIVE_API_VERSION || api->ram_end<0x50000000UL) return 0;
-    if (api->framebuffer && (api->width!=640 || api->height!=480)) return 0;
+    if (api->framebuffer && (native_display_mode(api->width,api->height)<0 || !api->set_display)) return 0;
     native_api=api;
 #ifdef TINYGPT_FIRMWARE
     native_pool=(NativePool *)0x40900000UL; native_heap_end=0x41000000UL;
@@ -386,7 +396,8 @@ static int native_initialize(const NativeApi *api) {
     native_pool=(NativePool *)0x45800000UL; native_heap_end=(UINTN)api->ram_end;
 #endif
     native_pool->size=native_heap_end-(UINTN)(native_pool+1); native_pool->next=0; native_pool->free=1;
-    native_mode=(EFI_SIMPLE_TEXT_OUTPUT_MODE){1,0,7,0,0,1};
+    native_mode=(EFI_SIMPLE_TEXT_OUTPUT_MODE){api->framebuffer ? NATIVE_DISPLAY_MODE_COUNT : 1,
+        api->framebuffer ? native_display_mode(api->width,api->height) : 0,7,0,0,1};
     native_graphics_initialize();
     native_output.OutputString=native_text; native_output.QueryMode=native_query;
     native_output.SetMode=native_set_mode; native_output.SetAttribute=native_attribute;

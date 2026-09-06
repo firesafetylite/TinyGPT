@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #define NATIVE_API_MAGIC 0x3256504147505454ULL
-#define NATIVE_API_VERSION 3U
+#define NATIVE_API_VERSION 4U
 /* Owned by TinyGPT firmware; no EDK II code or UEFI implementation is linked. */
 typedef struct {
     uint64_t magic, version, ram_end, sector_count;
@@ -15,5 +15,7 @@ typedef struct {
     uint32_t width, height;
     uint64_t boot_partition;
     int (*keyboard)(uint16_t *, uint16_t *);
+    /* On success updates this shared API's width/height; framebuffer stays fixed. */
+    int (*set_display)(uint32_t, uint32_t);
 } NativeApi;
 #endif

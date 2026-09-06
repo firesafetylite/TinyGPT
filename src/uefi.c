@@ -318,7 +318,7 @@ typedef struct {
 #define FS_DATA_BYTES 8192
 #define FS_PATH_BYTES 192
 #define SCROLLBACK_LINES 256
-#define SCROLLBACK_COLUMNS 160
+#define SCROLLBACK_COLUMNS 256
 #define SCROLLBACK_DEFAULT 0U
 #define SCROLLBACK_ACCENT 1U
 #define SCROLLBACK_LITERAL 0x100U
@@ -374,6 +374,8 @@ typedef struct {
     UINT8 showPromptPath;
     UINT8 startupHome;
     UINT8 scrollback;
+    UINT32 displayWidth;
+    UINT32 displayHeight;
 } SHELL_SETTINGS;
 
 static SHELL_SETTINGS gSettings;
@@ -642,7 +644,7 @@ static void scrollback_page(int direction) {
     scrollback_move(direction, gConsoleRows > 4 ? gConsoleRows - 2 : 10);
 }
 
-static void scrollback_enable(void) {
+static void console_update_geometry(void) {
     UINTN columns = 80;
     UINTN rows = 25;
     UINTN mode = 0;
@@ -656,6 +658,10 @@ static void scrollback_enable(void) {
     if (rows < 5) rows = 25;
     gConsoleColumns = columns;
     gConsoleRows = rows;
+}
+
+static void scrollback_enable(void) {
+    console_update_geometry();
     gScrollbackEnabled = 1;
     scrollback_reset();
 }
@@ -921,6 +927,8 @@ static int boot_order_save(UINTN partition) {
     file->Close(file);
     return status == EFI_SUCCESS && bytes == 1U;
 }
+
+#include "boot_settings.inc"
 
 static int storage_init(EFI_HANDLE imageHandle) {
     static EFI_GUID loadedImageGuid = {0x5b1b31a1, 0x9562, 0x11d2, {0x8e,0x3f,0x00,0xa0,0xc9,0x69,0x72,0x3b}};
@@ -2158,7 +2166,7 @@ static int fs_restore_system(void) {
         fs_ensure_file((UINTN)doomApp, "controls.txt",
             "WASD move/strafe\narrows turn/move\nF fire\nE use\nEnter select\nEsc menu\nQ or F12 return to shell", FS_PROTECTED);
         fs_ensure_file((UINTN)doomApp, "data.link",
-            "Freedoom Phase 1 0.13.0\nplatform file=DOOMU.WAD\nlicense=BSD-3-Clause\nThis is a metadata link; the IWAD lives on the EFI FAT32 volume.", FS_PROTECTED);
+            "Freedoom Phase 1 0.13.0\nplatform file=DOOMU.WAD\nlicense=BSD-3-Clause\nThis is a metadata link; the IWAD lives at the system partition root.", FS_PROTECTED);
         fs_ensure_file((UINTN)doomApp, "license.info",
             "PureDOOM engine=GPL-2.0\nFreedoom assets=BSD-3-Clause\nSee source distribution licenses.", FS_PROTECTED);
     }
@@ -2579,15 +2587,23 @@ static const char *settings_color_name(UINT8 color) {
     }
 }
 
-static int settings_parse_uint8(const char *text, UINT8 *value) {
-    UINTN parsed = 0;
+static int settings_parse_uint32(const char *text, UINT32 *value) {
+    UINT32 parsed = 0;
     if (!text || !*text) return 0;
     while (*text) {
         if (*text < '0' || *text > '9') return 0;
-        parsed = parsed * 10U + (UINTN)(*text - '0');
-        if (parsed > 255U) return 0;
+        UINT32 digit = (UINT32)(*text - '0');
+        if (parsed > (0xffffffffU - digit) / 10U) return 0;
+        parsed = parsed * 10U + digit;
         text++;
     }
+    *value = parsed;
+    return 1;
+}
+
+static int settings_parse_uint8(const char *text, UINT8 *value) {
+    UINT32 parsed;
+    if (!settings_parse_uint32(text, &parsed) || parsed > 255U) return 0;
     *value = (UINT8)parsed;
     return 1;
 }
@@ -2599,6 +2615,8 @@ static void settings_defaults(void) {
     gSettings.showPromptPath = 1;
     gSettings.startupHome = 0;
     gSettings.scrollback = 1;
+    gSettings.displayWidth = 0;
+    gSettings.displayHeight = 0;
 }
 
 static UINTN settings_text_attribute(UINT8 foreground, UINT8 background) {
@@ -2619,12 +2637,16 @@ static void settings_use_accent_color(void) {
 
 static void settings_parse_config_line(char *line) {
     char *value = line;
-    UINT8 parsed;
+    UINT32 parsed;
     while (*value && *value != '=') value++;
     if (*value != '=') return;
     *value++ = 0;
-    if (!settings_parse_uint8(value, &parsed)) return;
-    if (streq(line, "text_color")) {
+    if (!settings_parse_uint32(value, &parsed)) return;
+    if (streq(line, "display_width")) {
+        if (!parsed || (parsed >= 640U && parsed <= 1920U)) gSettings.displayWidth = parsed;
+    } else if (streq(line, "display_height")) {
+        if (!parsed || (parsed >= 480U && parsed <= 1080U)) gSettings.displayHeight = parsed;
+    } else if (streq(line, "text_color")) {
         if (parsed >= 1U && parsed <= 15U) gSettings.textColor = parsed;
     } else if (streq(line, "accent_color")) {
         if (parsed >= 1U && parsed <= 15U) gSettings.accentColor = parsed;
@@ -2661,6 +2683,10 @@ static void settings_load(void) {
         line[used] = 0;
         if (!overflow && used) settings_parse_config_line(line);
     }
+    if (!gSettings.displayWidth || !gSettings.displayHeight) {
+        gSettings.displayWidth = 0;
+        gSettings.displayHeight = 0;
+    }
     if (gSettings.backgroundColor == gSettings.textColor ||
         gSettings.backgroundColor == gSettings.accentColor) {
         gSettings.backgroundColor = SETTINGS_DEFAULT_BACKGROUND_COLOR;
@@ -2675,6 +2701,17 @@ static void settings_append_uint8(char *buffer, UINT8 value, UINTN capacity) {
     number[used++] = (char)('0' + value % 10U);
     number[used] = 0;
     string_append(buffer, number, capacity);
+}
+
+static void settings_append_uint32(char *buffer, UINT32 value, UINTN capacity) {
+    char number[11];
+    UINTN used = sizeof(number) - 1U;
+    number[used] = 0;
+    do {
+        number[--used] = (char)('0' + value % 10U);
+        value /= 10U;
+    } while (value);
+    string_append(buffer, number + used, capacity);
 }
 
 static int settings_save(void) {
@@ -2699,6 +2736,10 @@ static int settings_save(void) {
     settings_append_uint8(data, gSettings.startupHome, sizeof(data));
     string_append(data, "\nscrollback=", sizeof(data));
     settings_append_uint8(data, gSettings.scrollback, sizeof(data));
+    string_append(data, "\ndisplay_width=", sizeof(data));
+    settings_append_uint32(data, gSettings.displayWidth, sizeof(data));
+    string_append(data, "\ndisplay_height=", sizeof(data));
+    settings_append_uint32(data, gSettings.displayHeight, sizeof(data));
     string_append(data, "\n", sizeof(data));
     return gStorageReady && fs_set_file((UINTN)node, data);
 }
@@ -2716,6 +2757,28 @@ static void settings_print_toggle(UINT8 enabled) {
     print(enabled ? "on" : "off");
 }
 
+static const char *settings_save_notice(void);
+static int auth_authorize_admin(const char *action);
+#include "display_settings.inc"
+
+static const char *settings_choose_boot_timer(void) {
+    char answer[32];
+    UINT8 seconds;
+    gST->ConOut->ClearScreen(gST->ConOut);
+    print("=== Auto boot timer ===\n\n");
+    print("Seconds before the default partition boots: ");
+    print_u64(boot_settings_seconds());
+    print("\nChoose 1-60 seconds (default 2), or 0 to cancel.\n");
+    print("Applies next boot, across all partitions. Administrator required.\n\nSeconds: ");
+    read_line(answer, sizeof(answer));
+    if (!settings_parse_uint8(answer, &seconds) || seconds > BOOT_TIMER_MAX)
+        return "Invalid timer; choose 1 through 60 seconds, or 0 to cancel.";
+    if (!seconds) return "Boot timer change canceled.";
+    if (!auth_authorize_admin("changing the auto boot timer")) return "Boot timer was not changed.";
+    return boot_settings_save(seconds) ? "Boot timer saved; applies next boot." :
+        "Boot timer save failed; reboot will use the last valid value or 2 seconds.";
+}
+
 static void settings_show(const char *notice) {
     settings_use_accent_color();
     print("=== TinyGPT Settings ===\n");
@@ -2729,6 +2792,8 @@ static void settings_show(const char *notice) {
     print("  6  Scrollback         : "); settings_print_toggle(gSettings.scrollback); print("\n");
     print("  7  Restore appearance and shell defaults\n");
     print("  8  User accounts\n");
+    print("  9  Auto boot timer    : "); print_u64(boot_settings_seconds()); print(" seconds\n");
+    print(" 10  Screen resolution  : "); settings_display_print_current(); print("\n");
     print("  0  Return to shell\n");
     if (notice && *notice) {
         settings_use_accent_color();
@@ -2849,7 +2914,10 @@ static void command_settings(void) {
             gSettings.scrollback = (UINT8)!gSettings.scrollback;
             changed = 1;
         } else if (streq(choice, "7")) {
+            UINT32 width = gSettings.displayWidth, height = gSettings.displayHeight;
             settings_defaults();
+            gSettings.displayWidth = width;
+            gSettings.displayHeight = height;
             changed = 1;
         } else if (streq(choice, "8")) {
             if (!settings_accounts()) {
@@ -2859,8 +2927,14 @@ static void command_settings(void) {
             }
             notice = (const char *)0;
             continue;
+        } else if (streq(choice, "9")) {
+            notice = settings_choose_boot_timer();
+            continue;
+        } else if (streq(choice, "10")) {
+            notice = settings_choose_display();
+            continue;
         } else {
-            notice = "Unknown selection; choose 0 through 8.";
+            notice = "Unknown selection; choose 0 through 10.";
             continue;
         }
         if (changed > 0) {
@@ -3079,13 +3153,15 @@ static UINTN pre_os_boot_menu(void) {
 static UINTN pre_os_boot_prompt(void) {
     EFI_INPUT_KEY key;
     UINTN selected = boot_order_default_partition();
-    UINT64 deadline = timer_count() + gTimerHz * 2U;
+    UINT32 seconds = boot_settings_seconds();
     if (!pre_os_partition_registered(selected)) selected = 2U;
     if (!pre_os_partition_registered(selected)) selected = 1U;
     print("\n  Default partition "); print_u64(selected); print(": ");
     print(gPartitionNames[selected - 1U]); print("\n");
     print("  Press Enter for the partition menu, or Esc / R for firmware recovery.\n");
-    while (timer_count() < deadline) {
+    print("  Auto boot in "); print_u64(seconds); print(" seconds.\n");
+    UINT64 start = timer_count();
+    while (timer_count() - start < gTimerHz * seconds) {
         if (!poll_input_key(&key)) {
             __asm__ volatile("yield");
             continue;
@@ -3825,6 +3901,7 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE image, EFI_SYSTEM_TABLE *systemTable) {
 #endif
     auth_database_load();
     settings_load();
+    int displayReady = settings_display_load();
     startupNode = fs_resolve(gSettings.startupHome ? "/home" : "/");
     if (startupNode >= 0 && gNodes[startupNode].type == FS_DIRECTORY) {
         gCwd = (UINTN)startupNode;
@@ -3838,6 +3915,7 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE image, EFI_SYSTEM_TABLE *systemTable) {
     settings_use_default_color();
     print(" - ARM64 shell + direct FAT filesystem\n");
     print("Pre-OS recovery: press Esc or R during firmware startup.\n\n");
+    if (!displayReady) print("Saved resolution unavailable; using the boot display mode.\n");
     for (;;) {
         while (gCurrentAccount < 0) {
             if (!auth_login()) delay_ms(500);

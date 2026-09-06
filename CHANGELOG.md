@@ -6,6 +6,8 @@ Notable changes to TinyGPT are documented here. This project follows [Keep a Cha
 
 ### Added
 
+- Add Settings > Auto boot timer (1–60 seconds, default 2), with administrator-authorized, checksum-validated recovery-volume persistence read before mounting the OS.
+- Add Settings > Screen resolution with supported-mode selection, 15-second confirm-or-revert previews, per-system persistence, and safe unavailable-mode fallback. Native RAMFB supports 640×480, 800×600, 1024×768, and 1280×720 through native ABI 4; install matching BIOS/ELF builds together. UEFI mode changes use a GOP-backed text console rather than stale firmware text geometry. Add host C regressions and disposable-VM settings tests.
 - Add a full native BIOS/system target (`make native`): independently resident recovery, a disk-loaded TinyGPT ELF OS, writable FAT16/FAT32, graphical/serial consoles, and VirtIO-MMIO keyboard/block drivers. Exercise login, account Settings, persistence, colored scrollback, authorization, root wipe and repair in isolated QEMU; existing VMs still require a backed-up hardware/firmware migration. Native HTTP/TLS updates remain unsupported.
 - Begin an independent ARM64 BIOS prototype with no EDK II dependencies: native reset/exception code, a firmware-resident serial recovery menu, read-only VirtIO-MMIO/GPT/FAT access, and bounded native ELF handoff. Add host parser tests and diskless/disposable-disk QEMU smoke tests. This is not yet compatible with the current EFI OS or the working UTM VM's graphical/PCI configuration; the existing firmware is retained.
 - Add pre-OS `partition delete N` with administrator password re-authentication, multi-factor TinyGPT ownership checks, mirrored GPT verification, immediate session-state cleanup, explicit non-secure-erasure warnings, and a mandatory firmware-enumeration reboot boundary.
@@ -13,6 +15,8 @@ Notable changes to TinyGPT are documented here. This project follows [Keep a Cha
 
 ### Changed
 
+- Include Freedoom game data in native firmware recovery: explicitly authorized repair restores a missing `DOOMU.WAD` after a system wipe, using staged writes and SHA-256 read-back, without replacing existing IWADs, saves or configuration. Add a non-destructive offline asset restore helper and exercise restored Doom rendering/exit in QEMU.
+- Identity-map native flash/RAM as Normal non-cacheable memory while retaining Device MMIO, fixing Doom's alignment fault on packed WAD records; keep caches disabled for polled DMA.
 - Restore the former console's original 8×19 font bitmaps in the native renderer without bringing back EDK II firmware; retain license/provenance, original pixel rows, and correct scroll bounds.
 - Add native held-arrow repeat (400 ms delay, 20 Hz), stop on release, prioritize queued releases, and avoid catch-up bursts or synthesizing printable/password keys. Verify timing in native C and held-key scrolling/release in QEMU.
 - Preserve default/accent text roles, custom backgrounds, and active output styling during scrollback redraw; recolor retained history with the current Settings theme. Add executable C regression coverage for scrolling, wrapping, eviction, and theme changes.

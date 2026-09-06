@@ -510,7 +510,7 @@ class ShellSourceTests(unittest.TestCase):
         self.assertIn("background_color", SOURCE)
         self.assertIn("settings_text_attribute", settings_ui)
         self.assertIn("color == gSettings.textColor || color == gSettings.accentColor", settings_ui)
-        self.assertIn("Unknown selection; choose 0 through 8.", settings_ui)
+        self.assertIn("Unknown selection; choose 0 through 10.", settings_ui)
         self.assertIn("Invalid background; choose 1 through 8.", settings_ui)
         self.assertIn("gST->ConOut->ClearScreen", settings_ui)
         self.assertIn("settings_save_notice()", settings_ui)

@@ -42,6 +42,7 @@ esac
   -o build/BOOTAA64.EFI src/uefi.c
 
 python3 tools/make_image.py build/BOOTAA64.EFI build/TinyGPT.img assets/freedoom1.wad
+cp third_party/console-font/LICENSE.txt build/CONSOLE-FONT-LICENSE.txt
 
 echo
 echo "Build complete:"

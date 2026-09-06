@@ -35,7 +35,7 @@ void hex(uint64_t n) {
 void bios_exception(uint64_t level, uint64_t syndrome, uint64_t address) {
     puts_bios("\nFirmware exception: EL"); number(level>>2);
     puts_bios(" ESR="); hex(syndrome); puts_bios(" PC="); hex(address);
-    puts_bios("\nHalted; disk writes are not implemented.\n");
+    puts_bios("\nHalted to prevent further disk operations.\n");
     for (;;) __asm__ volatile("wfe");
 }
 static void power(int reboot) {
