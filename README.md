@@ -23,8 +23,10 @@ custom-colored scrollback are tested with `make native-test`.
 See [native firmware setup, validation, and migration limits](firmware/native/README.md).
 Existing VMs need a clean shutdown, a fresh full backup, matching BIOS/ELF images,
 and supported hardware configuration—not just a firmware-file swap. Native
-HTTP/TLS updates are not implemented. The release/download instructions below
-still describe the existing EFI distribution, not an already deployed migration.
+HTTP/TLS updates are not implemented. Nightly now also publishes
+`TinyGPT-nightly-native.zip`, containing the matched BIOS/ELF, checksums,
+installation notes, and a factory disk for **new VMs only**. The existing `.img`
+and EFI updater downloads below remain the UEFI distribution, not native upgrades.
 
 ## Highlights
 
@@ -264,11 +266,26 @@ Graphics and input use UEFI protocols directly; no Linux layer is involved. Soun
 | Channel | Branch | Purpose | Published artifact |
 | --- | --- | --- | --- |
 | Stable | [`main`](https://github.com/firesafetylite/TinyGPT/tree/main) | Versioned releases | `TinyGPT-vVERSION.img` |
-| Nightly beta | [`nightly`](https://github.com/firesafetylite/TinyGPT/tree/nightly) | Rolling development build | `TinyGPT-nightly.img` |
+| Nightly beta (UEFI) | [`nightly`](https://github.com/firesafetylite/TinyGPT/tree/nightly) | Rolling UEFI build | `TinyGPT-nightly.img` |
+| Nightly native | [`nightly`](https://github.com/firesafetylite/TinyGPT/tree/nightly) | Matched native BIOS + OS | `TinyGPT-nightly-native.zip` |
 
 Each nightly push replaces the existing [`nightly` prerelease](https://github.com/firesafetylite/TinyGPT/releases/tag/nightly). Stable releases are tagged from `main`. Update commands default to `main`; opting into nightly must be explicit.
 
-### In-OS updater
+### Native BIOS downloads
+
+Download `TinyGPT-nightly-native.zip` and verify it against the release's
+`SHA256SUMS`. Inside are a matching 64 MiB BIOS, `TINYGPT.ELF`, a **new-VM-only**
+factory disk, installation notes, licenses, per-file checksums, and a manifest
+identifying the source commit and ABI. Nightly validates the BIOS/ELF pair and
+boots disposable native VMs before publishing it. Never overwrite an existing
+user disk with the factory disk or mix BIOS/OS builds; see the
+[native installation notes](firmware/native/DISTRIBUTION.md).
+
+Native guest `update` is still unavailable: use a stopped, fully backed-up VM
+and prepare the native disk update on the host. The following two updater paths
+are **UEFI-only**.
+
+### In-OS updater (UEFI only)
 
 ```text
 update check
@@ -281,7 +298,7 @@ The updater validates channel compatibility, the manifest, SHA-256 digest, file 
 
 Guest updates require firmware that exposes UEFI HTTP/TLS. For UTM, keep `TinyGPT-QEMU_EFI.fd` attached as read-only PFlash and `TinyGPT-QEMU_EFI-vars.fd` as writable PFlash variables, with Emulated networking and VirtIO RNG enabled. These firmware files are separate from `TinyGPT.img`; replacing the disk does not replace them.
 
-### Host-side fallback
+### Host-side fallback (UEFI only)
 
 If guest firmware does not provide HTTP/TLS, shut down the VM, detach the image from all running VMs, download `tinygpt` from the release, and run:
 

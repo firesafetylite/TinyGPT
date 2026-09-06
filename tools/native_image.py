@@ -14,13 +14,15 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_NAME = b"TINYGPT ELF"
 DOOM_NAME = b"DOOMU   WAD"
+NATIVE_ABI = 4
+BIOS_BYTES = 64 * 1024 * 1024
 
 
 def validate_system(image: bytes) -> None:
     if (not 64 <= len(image) <= 8 * 1024 * 1024 or image[:7] != b"\x7fELF\x02\x01\x01"
             or struct.unpack_from("<HH", image, 16) != (2, 183)
-            or b"TinyGPTNativeABI=4\n" not in image):
-        raise ValueError("Expected the current native ARM64 TinyGPT ELF system (ABI 4)")
+            or f"TinyGPTNativeABI={NATIVE_ABI}\n".encode() not in image):
+        raise ValueError(f"Expected the current native ARM64 TinyGPT ELF system (ABI {NATIVE_ABI})")
     entry, table = struct.unpack_from("<QQ", image, 24)
     stride, count = struct.unpack_from("<HH", image, 54)
     if stride != 56 or not 1 <= count <= 32 or table + count * stride > len(image):
@@ -42,6 +44,18 @@ def validate_system(image: bytes) -> None:
         executable |= bool(flags & 1) and physical <= entry < physical + files
     if not executable or entry % 4:
         raise ValueError("Invalid native entry point")
+
+
+def validate_pair(bios: bytes, system: bytes) -> None:
+    """Require a full ROM containing this exact ELF as its recovery payload.
+
+    This is a build-consistency check, not a signature or secure-boot claim.
+    """
+    validate_system(system)
+    if len(bios) != BIOS_BYTES:
+        raise ValueError("Expected a complete 64 MiB native BIOS ROM")
+    if system not in bios:
+        raise ValueError("Native BIOS and OS are not a matched build")
 
 
 def install_system(disk: bytes, system: bytes, partition: int = 2) -> bytes:

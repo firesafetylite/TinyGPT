@@ -41,10 +41,19 @@ jobs:
           python -m unittest discover -s tests -v
           python tinygpt --help
 
-      - name: Build nightly image
+      - name: Build nightly UEFI and matching native BIOS/OS images
         env:
           TINYGPT_BUILD_CHANNEL: nightly
-        run: make
+        run: |
+          make
+          make native
+
+      - name: Validate native boot, recovery, and persistent settings
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm
+          python tools/test_native.py --artifacts build/native/smoke
+          python tools/test_settings.py --artifacts build/native/settings-smoke
 
       - name: Read and validate build version
         id: build
@@ -84,6 +93,8 @@ jobs:
           cp build/TinyGPT.img "dist/TinyGPT-nightly.img"
           cp tinygpt dist/tinygpt
           chmod +x dist/tinygpt
+          python tools/package_native.py --build build/native \
+            --output dist/TinyGPT-nightly-native.zip --revision "$GITHUB_SHA"
           zip -9 "dist/TinyGPT-nightly-LICENSES.zip" \
             LICENSE THIRD_PARTY_NOTICES.md \
             firmware/licenses/EDK2-LICENSE.txt \
@@ -123,9 +134,11 @@ jobs:
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref=refs/tags/nightly -f sha="$GITHUB_SHA" >/dev/null
           fi
+          notes="Rolling nightly from ${GITHUB_SHA}. Native BIOS users: download TinyGPT-nightly-native.zip for a matched BIOS + TINYGPT.ELF, checksums, and a NEW-VM-only factory disk. Back up existing VMs and update BIOS/OS together; native in-OS updates are not supported. TinyGPT-nightly.img and BOOTAA64.EFI remain UEFI-only."
           if gh release view nightly >/dev/null 2>&1; then
             gh release upload nightly \
               dist/TinyGPT-nightly.img \
+              dist/TinyGPT-nightly-native.zip \
               dist/TinyGPT-nightly-LICENSES.zip \
               dist/tinygpt \
               --clobber
@@ -134,13 +147,13 @@ jobs:
             gh release upload nightly dist/TinyGPT-nightly-update.txt --clobber
             gh release edit nightly \
               --title "TinyGPT nightly" \
-              --notes "Rolling beta build from the nightly branch at ${GITHUB_SHA}." \
+              --notes "$notes" \
               --prerelease
           else
             gh release create nightly dist/* \
               --verify-tag \
               --title "TinyGPT nightly" \
-              --notes "Rolling beta build from the nightly branch at ${GITHUB_SHA}." \
+              --notes "$notes" \
               --prerelease
           fi
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \

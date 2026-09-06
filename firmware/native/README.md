@@ -79,6 +79,19 @@ checks timer validation, reboot persistence and the recovery-key window, all fou
 resolution previews, confirmation, timeout/explicit rollback, and boot-default
 restoration on a disposable disk.
 
+## Matched nightly download
+
+The rolling nightly release includes `TinyGPT-nightly-native.zip`. It packages
+BIOS and ELF from the same build with a new-VM-only factory disk, licenses,
+installation notes, per-file checksums, and a source-commit/ABI manifest. The
+packager verifies that the ROM embeds the exact ELF and that the clean factory
+disk contains it, refusing unexpected account/user files. The nightly workflow
+runs both native VM suites before publishing. Verify the archive against the
+release's outer `SHA256SUMS`, then use the bundled `README.md`.
+
+See [distribution/install instructions](DISTRIBUTION.md). The separate
+`TinyGPT-nightly.img` and EFI update manifests are **not** native updates.
+
 ## Migration safety and remaining limitations
 
 Stop the guest cleanly and make a fresh **complete VM backup** before changing
@@ -93,8 +106,9 @@ Retain the complete old VM backup for rollback.
 
 Native guest HTTP/TLS and guest-downloaded upgrades are not implemented. Native
 builds reject EFI update payloads; use paired host-built firmware/system updates.
-The legacy EFI build/release tooling remains for existing EFI installations and
-is not involved in building or booting this native target. Account salts use the
+The legacy EFI artifacts remain available for existing EFI installations;
+nightly publishes the native bundle separately and never puts ELF into the EFI
+update manifest. Account salts use the
 existing non-cryptographic fallback because the native platform has no RNG
 protocol yet; local authentication is not disk encryption or offline tamper
 protection. FAT and account redundancy do not guarantee arbitrary power-loss

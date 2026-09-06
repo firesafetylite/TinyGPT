@@ -3847,7 +3847,10 @@ static void run_command(char *line) {
                streq(command, "update nightly") || streq(command, "update check") ||
                streq(command, "update check main") || streq(command, "update check nightly")) {
 #ifdef TINYGPT_NATIVE
-        print("Native updates require a host-built TinyGPT system/firmware image; EFI updates are not compatible.\n");
+        print("Native in-OS updates are not implemented.\n"
+              "Use TinyGPT-nightly-native.zip from GitHub on the host.\n"
+              "Shut down and back up the VM, then install its matching BIOS and TINYGPT.ELF.\n"
+              "The factory disk is for new VMs only. EFI updates are not compatible.\n");
 #else
         int checkOnly = streq(command, "update check") ||
                         streq(command, "update check main") ||

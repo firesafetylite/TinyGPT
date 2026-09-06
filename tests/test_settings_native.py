@@ -52,7 +52,8 @@ static EFI_STATUS read_file(EFI_FILE_PROTOCOL *self, UINTN *bytes, void *out) {
 static EFI_STATUS write_file(EFI_FILE_PROTOCOL *self, UINTN *bytes, void *data) {
     (void)self; if (fail_write) { *bytes=0; return EFI_DEVICE_ERROR; }
     assert(position+*bytes<=sizeof(disk)); memcpy(disk+position,data,*bytes); position+=*bytes;
-    if (position>length) length=position; return EFI_SUCCESS;
+    if (position>length) length=position;
+    return EFI_SUCCESS;
 }
 static EFI_STATUS get_info(EFI_FILE_PROTOCOL *self, EFI_GUID *guid, UINTN *bytes, void *buffer) {
     (void)self; (void)guid; EFI_FILE_INFO *info=buffer;
@@ -165,7 +166,9 @@ static void print_u64(UINT64 value) { (void)value; }
 static void read_line(char *out, UINTN capacity) { assert(strlen(answer)<capacity); strcpy(out,answer); }
 static UINT64 timer_count(void) { clock_ticks+=10000; return clock_ticks; }
 static int poll_input_key(EFI_INPUT_KEY *key) {
-    if (!confirmation) return 0; key->ScanCode=0; key->UnicodeChar=(CHAR16)confirmation; confirmation=0; return 1;
+    if (!confirmation) return 0;
+    key->ScanCode=0; key->UnicodeChar=(CHAR16)confirmation; confirmation=0;
+    return 1;
 }
 static const char *settings_save_notice(void) { saves++; return "saved"; }
 static void settings_use_default_color(void) { gST->ConOut->SetAttribute(gST->ConOut,0x1c); }
